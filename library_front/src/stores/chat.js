@@ -94,40 +94,37 @@ const ensurePersona = async function (bookId) {
   // 메시지 전송
   const sendMessage = function (question, book) {
     if (!question.trim()) return
-    if (!book || typeof book.pk !== 'number') {
-      error.value = '도서 정보가 올바르지 않습니다.'
+    if (!book || typeof book.pk !== 'number') 
       return
-    }
 
     const bookId = book.pk
 
+    
     console.log('[DEBUG] 저장된 토큰:', accountStore.token)
+    console.log('[DEBUG] sendMessage payload:', {
+    bookId,
+    question
+  })
 
-    axios({
-      method: 'POST',
-      url: `${API_URL}/api/chat/`,      
-      data: {
-        question,
-        book,
-        persona: personas.value[bookId],  // 현재 페르소나 상태 전달
-      },
+    axios.post(
+    `${API_URL}/api/chat/`,
+    {
+      bookId,
+      question
+    },
+    {
       headers: {
         'Authorization': `Token ${accountStore.token}`
       }
-    })
-    .then(res => {
-      const botMessage = { sender: 'bot', text: res.data.answer }
-      allMessages.value[bookId].push(botMessage)
-      messages.value = [...allMessages.value[bookId]]
+    }
+  )
+  .then(res => {
+    console.log('✅ AI 응답:', res.data)
+  })
+  .catch(err => {
+    console.error('❌ chat api error:', err.response?.data || err)
+  })
 
-      // 서버가 업데이트된 페르소나 반환 시 저장
-      if (res.data.persona) {
-        personas.value[bookId] = res.data.persona
-      }
-    })
-    .catch(err => {
-      console.log('이슈: ', err)
-    })
 
     const userMessage = { sender: 'user', text: question }
 
