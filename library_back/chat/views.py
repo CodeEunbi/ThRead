@@ -35,94 +35,72 @@ from rest_framework.response import Response
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def chat_api_view(request):
-    if request.method != 'POST':
-        return JsonResponse({'error': 'POST 요청만 지원합니다.'}, status=405)
+    # 🔥 DRF에서는 request.data를 써야 함
+    book_id = request.data.get("bookId")
+    question = request.data.get("question")
 
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({'error': '유효하지 않은 JSON입니다.'}, status=400)
+    print("🔥 request.data:", request.data)  # 디버그용
 
-    book_data = data.get("book", {})
-    book_id = book_data.get("pk")
-    book_content = book_data.get("content", "")
-    author_info = book_data.get("author_info", "") 
-    question = data.get("question", "")
-
-
-    # book_content = data.get("book", {}).get("content", "")
-    # author_info = data.get("author", {}).get("info", "")
-    # question = data.get("question", "")
-    # book_id = book_content.get("pk")
-
-    if not question:
-        return JsonResponse({"error": "질문이 필요합니다."}, status=400)
-    
-    if not request.user.is_authenticated:
-        return JsonResponse({'error': '로그인이 필요합니다.'}, status=401)
-
- 
+    if not book_id or not question:
+        return Response(
+            {"error": "bookId와 question이 필요합니다."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
     try:
         book = Book.objects.get(pk=book_id)
     except Book.DoesNotExist:
-        return JsonResponse({'error': '책을 찾을 수 없습니다.'}, status=404)
+        return Response(
+            {"error": "책을 찾을 수 없습니다."},
+            status=status.HTTP_404_NOT_FOUND
+        )
 
-
-
-    # ✅ PersonaPrompt 가져오기 또는 생성
     persona, _ = PersonaPrompt.objects.get_or_create(
         book=book,
-        defaults={'prompt': f"당신은 '{book.title}'의 작가입니다. 이 책에 대해 사용자에게 안내하세요."}
+        defaults={
+            'prompt': f"당신은 '{book.title}'의 작가입니다. 이 책에 대해 사용자에게 안내하세요."
+        }
     )
 
-    # ✅ Conversation 가져오기 또는 생성
     conversation, _ = Conversation.objects.get_or_create(
         user=request.user,
         persona=persona,
     )
 
-    # ✅ 프롬프트 구성
-    prompt = f"""당신은 이 책의 작가로써, 이 책에 대한 내용과 작가의 배경을 토대로 답변하는 작가AI 입니다.
-책 내용: {book_content}
-저자 정보: {author_info}
+    prompt = f"""
+당신은 이 책의 작가입니다.
+책 제목: {book.title}
+저자: {book.author}
 사용자 질문: {question}
-3줄 이내로 설명해줘. 추가 정보는 인터넷에서 검색하고, 정확한 정보가 아니라면 너의 추론이라고 꼭 붙여서 대답해줘.
-답변:"""
-
+3줄 이내로 답변하세요.
+"""
 
     try:
         client = OpenAI(api_key=settings.OPENAI_API_KEY)
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "당신은 책에 대해 잘 아는 도우미입니다."},
+                {"role": "system", "content": "당신은 책의 작가입니다."},
                 {"role": "user", "content": prompt}
             ],
             max_tokens=800,
             temperature=0.1,
         )
+
         answer = response.choices[0].message.content.strip()
 
-        # ✅ 메시지 저장
-        Message.objects.create(
-            conversation=conversation,
-            is_user=True,
-            content=question
-        )
-        Message.objects.create(
-            conversation=conversation,
-            is_user=False,
-            content=answer
-        )
+        Message.objects.create(conversation=conversation, is_user=True, content=question)
+        Message.objects.create(conversation=conversation, is_user=False, content=answer)
 
-        return JsonResponse({
+        return Response({
             "answer": answer,
             "conversation_id": conversation.id
         })
 
     except OpenAIError as e:
-        return JsonResponse({"error": str(e)}, status=500)
+        return Response({"error": str(e)}, status=500)
+
+
     
 
 @api_view(['POST'])
