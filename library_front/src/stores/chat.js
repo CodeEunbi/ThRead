@@ -1,4 +1,3 @@
-// 📁 src/stores/chat.js
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import axios from 'axios'
@@ -7,137 +6,147 @@ import { useAccountStore } from './accounts'
 export const useChatStore = defineStore('chat', () => {
   const accountStore = useAccountStore()
 
-  // const token = localStorage.getItem('token')
-
   const allMessages = ref({})        // { [bookId]: [messages] }
   const currentBookId = ref(null)
-  const messages = ref([])           // 현재 책에 대한 메시지 목록
+  const messages = ref([])
   const error = ref(null)
   const isLoading = ref(false)
-  const API_URL = 'http://127.0.0.1:8000'
 
-  // 현재 책에 대한 페르소나
+  const API_URL = 'http://127.0.0.1:8000'
   const personas = ref({})
 
-  const loadConversation = async function (bookId) {
+  /* =========================
+     대화 불러오기
+  ========================= */
+  const loadConversation = async (bookId) => {
     try {
-      const response = await axios.post(`${API_URL}/api/chat/conversations/`, {
-        book_id: bookId,
-      }, {
-        headers: {
-          'Authorization': `Token ${accountStore.token}`
+      console.log('[CHAT] loadConversation:', bookId)
+
+      const res = await axios.post(
+        `${API_URL}/api/chat/conversations/`,
+        { book_id: bookId },
+        {
+          headers: {
+            Authorization: `Token ${accountStore.token}`,
+          },
         }
-      })
+      )
 
-      const { messages: msgList, conversation_id } = response.data
-
-      // 메시지 저장
-      const parsedMessages = msgList.map(msg => ({
+      const parsedMessages = res.data.messages.map(msg => ({
         sender: msg.is_user ? 'user' : 'bot',
         text: msg.content,
       }))
 
       allMessages.value[bookId] = parsedMessages
-      messages.value = [...parsedMessages]
+      messages.value = parsedMessages
 
-      if (msgList.length === 0) {
-        messages.value.push({
-          sender: 'bot',
-          text: '작가님에게 질문해보세요!',
-        })
-      }
+      console.log('[CHAT] loaded messages:', parsedMessages.length)
 
-      error.value = null
-
-      console.log(`✅ 불러온 대화 (${msgList.length}개)`)
     } catch (err) {
       console.error('❌ 대화 불러오기 실패:', err)
       error.value = '이전 대화 불러오기에 실패했어요.'
     }
-  } 
+  }
 
-    // 현재 책 선택 시 메시지 설정
-const setCurrentBook = async function (bookId) {
-  currentBookId.value = bookId
-  messages.value = allMessages.value[bookId] || []
+  /* =========================
+     현재 책 선택
+  ========================= */
+  const setCurrentBook = async (bookId) => {
+    console.log('[CHAT] setCurrentBook:', bookId)
 
-  if (!personas.value[bookId]) {
-    // ensurePersona 호출하여 결과를 저장
-    const personaData = await ensurePersona(bookId)
-    if (personaData) {
-      personas.value[bookId] = personaData.persona_id  // 또는 필요한 값 전체
+    currentBookId.value = bookId
+
+    if (allMessages.value[bookId]) {
+      messages.value = allMessages.value[bookId]
+    }
+
+    if (!personas.value[bookId]) {
+      const personaData = await ensurePersona(bookId)
+      if (personaData) {
+        personas.value[bookId] = personaData.persona_id
+      }
     }
   }
-}
-  
-const ensurePersona = async function (bookId) {
-  try {
-    const response = await axios.post(`${API_URL}/api/chat/ensure_persona/`, {
-      book_id: bookId
-    }, {
-      headers: {
-        'Authorization': `Token ${accountStore.token}`
-      }
-    })
 
-    const { persona_id, created, prompt } = response.data
-    console.log(`✅ Persona ${created ? '생성됨' : '이미 존재'}: ID ${persona_id}`)
-    return { persona_id, prompt }
+  /* =========================
+     페르소나 보장
+  ========================= */
+  const ensurePersona = async (bookId) => {
+    try {
+      console.log('[CHAT] ensurePersona:', bookId)
 
-  } catch (err) {
-    console.error('❌ 페르소나 생성 중 오류:', err)
-    error.value = '페르소나 생성에 실패했어요.'
-    return null
+      const res = await axios.post(
+        `${API_URL}/api/chat/ensure_persona/`,
+        { book_id: bookId },
+        {
+          headers: {
+            Authorization: `Token ${accountStore.token}`,
+          },
+        }
+      )
+
+      console.log('[CHAT] persona ready:', res.data)
+      return res.data
+
+    } catch (err) {
+      console.error('❌ 페르소나 생성 오류:', err)
+      error.value = '페르소나 생성에 실패했어요.'
+      return null
+    }
   }
-}
 
-  // 메시지 전송
-  const sendMessage = function (question, book) {
+  /* =========================
+     🔥 메시지 전송
+  ========================= */
+  const sendMessage = async (question, book) => {
     if (!question.trim()) return
-    if (!book || typeof book.pk !== 'number') 
-      return
+    if (!book || typeof book.pk !== 'number') return
 
     const bookId = book.pk
-
-    
-    console.log('[DEBUG] 저장된 토큰:', accountStore.token)
-    console.log('[DEBUG] sendMessage payload:', {
-    bookId,
-    question
-  })
-
-    axios.post(
-    `${API_URL}/api/chat/`,
-    {
-      bookId,
-      question
-    },
-    {
-      headers: {
-        'Authorization': `Token ${accountStore.token}`
-      }
-    }
-  )
-  .then(res => {
-    console.log('✅ AI 응답:', res.data)
-  })
-  .catch(err => {
-    console.error('❌ chat api error:', err.response?.data || err)
-  })
-
-
-    const userMessage = { sender: 'user', text: question }
-
     error.value = null
     isLoading.value = true
 
-    // 사용자 메시지 먼저 저장
-    if (!allMessages.value[bookId]) {
-      allMessages.value[bookId] = []
-    }
-    allMessages.value[bookId].push(userMessage)
-    messages.value = [...allMessages.value[bookId]]
+    console.log('[CHAT] sendMessage')
 
+    // 1️⃣ 유저 메시지 즉시 반영
+    const userMessage = { sender: 'user', text: question }
+    const current = allMessages.value[bookId] || []
+
+    allMessages.value[bookId] = [...current, userMessage]
+    messages.value = allMessages.value[bookId]
+
+    try {
+      const res = await axios.post(
+        `${API_URL}/api/chat/`,
+        { bookId, question },
+        {
+          headers: {
+            Authorization: `Token ${accountStore.token}`,
+          },
+        }
+      )
+
+      console.log('[CHAT] AI response:', res.data)
+
+      // 2️⃣ AI 응답 반영
+      const botMessage = {
+        sender: 'bot',
+        text: res.data.answer,
+      }
+
+      allMessages.value[bookId] = [
+        ...allMessages.value[bookId],
+        botMessage,
+      ]
+
+      messages.value = allMessages.value[bookId]
+
+    } catch (err) {
+      console.error('❌ chat api error:', err)
+      error.value = 'AI 응답에 실패했어요.'
+    } finally {
+      isLoading.value = false
+    }
   }
 
   return {
